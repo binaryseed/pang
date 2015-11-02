@@ -1,46 +1,47 @@
 defmodule Player do
   use GenServer
+  @skill 0.33
 
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, :ok, opts)
+  def start_link(n), do: GenServer.start_link(__MODULE__, [n])
+
+  def init([n]) do
+    {:ok, %{number: n, balls_won: []}}
   end
 
-  def init(:ok) do
-    :random.seed(:os.timestamp)
-    GenServer.cast(self, {:serve_ball})
-    {:ok, %{points: 0}}
-  end
+  def serve(pid, n),   do: GenServer.cast(pid, {:serve, n})
+  def receive(pid, n), do: GenServer.cast(pid, {:receive, self, n, swing()})
+  def score(pid, n),   do: GenServer.cast(pid, {:score, n})
+  def report(pid),     do: GenServer.cast(pid, :report)
 
-  def handle_cast({:receive_ball, from_pid}, state) do
-    IO.puts("Ball Received #{inspect from_pid}")
-    case maybe() do
-      true ->
-        IO.puts("Hit in #{inspect self}")
-        GenServer.cast(self, {:serve_ball})
-      false ->
-        IO.puts("Miss in #{inspect self}")
-        GenServer.cast(from_pid, :score)
-    end
+  def handle_cast({:receive, _from, ball, true}, state) do
+    Player.serve(self, ball)
+    IO.write(">")
     {:noreply, state}
   end
 
-  def handle_cast({:serve_ball}, state) do
-    to_pid = Game.get_players
-             |> Enum.at(:random.uniform(3))
-    IO.puts("Serve Ball to #{inspect to_pid}")
-    GenServer.cast(to_pid, {:receive_ball, self})
+  def handle_cast({:receive, from, ball, false}, state) do
+    Player.score(from, ball)
+    IO.write("-")
     {:noreply, state}
   end
 
-  def handle_cast(:score, %{points: points}) do
-    new_state = %{points: points + 1}
-    IO.puts("Score for #{inspect self}: #{new_state.points}")
-    {:noreply, new_state}
+  def handle_cast({:serve, ball}, state) do
+    Game.players
+    |> Enum.random
+    |> Player.receive(ball)
+    IO.write("}")
+    {:noreply, state}
   end
 
-  #Private
-
-  defp maybe do
-    :random.uniform > 0.33
+  def handle_cast({:score, ball}, %{balls_won: balls} = state) do
+    IO.write("!")
+    {:noreply, Map.put(state, :balls_won, balls ++ [ball])}
   end
+
+  def handle_cast(:report, state) do
+    IO.puts("##{state.number}: #{Enum.count state.balls_won}, #{inspect state.balls_won}")
+    {:noreply, state}
+  end
+
+  defp swing(), do: :random.uniform > @skill
 end
